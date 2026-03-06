@@ -1,7 +1,27 @@
-# Repository Guidelines
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 - Repo: https://github.com/openclaw/openclaw
 - GitHub issues/comments/PR comments: use literal multiline strings or `-F - <<'EOF'` (or $'...') for real newlines; never embed "\\n".
+
+## Architecture Overview
+
+OpenClaw is a **WhatsApp (and multi-channel) AI gateway CLI** with a Pi RPC agent. The system has these major layers:
+
+**Gateway** (`src/gateway/`) — the core long-running server. Exposes WebSocket + HTTP (via Hono/Express). Client apps (macOS, iOS, Android, web UI) connect via WebSocket using the **ACP protocol** (`src/acp/`). The gateway bridges incoming messages from any connected messaging channel → AI agent → reply back to the channel.
+
+**Channels** (`src/telegram`, `src/discord`, `src/slack`, `src/signal`, `src/imessage`, `src/web` [WhatsApp], `src/line`, `src/channels/`) — each channel is a plugin that registers with `src/channels/registry.ts`. Core built-in channels: WhatsApp (Baileys), Telegram (grammY), Discord, Slack, Signal, iMessage, LINE, Google Chat. Extension channels (Matrix, MS Teams, Zalo, voice-call) live under `extensions/`. Routing from any channel to an agent session is in `src/routing/`.
+
+**Agents** (`src/agents/`) — Pi agent core (`@mariozechner/pi-agent-core`). Multiple AI backends supported: Anthropic Claude, OpenAI, AWS Bedrock, Google Gemini, OpenRouter, Ollama/local, Chutes. Auth profiles (`src/agents/auth-profiles/`) manage API key rotation and failover across providers.
+
+**Plugin system** (`src/plugins/`, `extensions/`) — pnpm workspace packages that extend channels or tools. Runtime resolves `openclaw/plugin-sdk` via jiti alias.
+
+**Client apps** — macOS menubar app (`apps/macos/` Swift/SwiftUI), iOS (`apps/ios/`), Android (`apps/android/`). All connect to the local gateway via ACP/WebSocket.
+
+**Control UI** (`ui/`) — web-based admin panel (Lit/web components), served by the gateway at a local port.
+
+**Key data flow**: Messaging channel receives message → `src/routing/` resolves agent session → gateway invokes Pi agent with message + tools → agent replies → gateway sends reply back to channel. ACP protocol streams tool call events to connected client apps in real time.
 
 ## Project Structure & Module Organization
 
@@ -26,7 +46,7 @@
 - When Peter asks for links, reply with full `https://docs.openclaw.ai/...` URLs (not root-relative).
 - When you touch docs, end the reply with the `https://docs.openclaw.ai/...` URLs you referenced.
 - README (GitHub): keep absolute docs URLs (`https://docs.openclaw.ai/...`) so links work on GitHub.
-- Docs content must be generic: no personal device names/hostnames/paths; use placeholders like `user@gateway-host` and “gateway host”.
+- Docs content must be generic: no personal device names/hostnames/paths; use placeholders like `user@gateway-host` and "gateway host".
 
 ## exe.dev VM ops (general)
 
@@ -52,13 +72,15 @@
 - Type-check/build: `pnpm build`
 - Lint/format: `pnpm check`
 - Tests: `pnpm test` (vitest); coverage: `pnpm test:coverage`
+- Run a single test file: `bunx vitest run src/path/to/file.test.ts`
+- Watch tests: `pnpm test:watch`
 
 ## Coding Style & Naming Conventions
 
 - Language: TypeScript (ESM). Prefer strict typing; avoid `any`.
 - Formatting/linting via Oxlint and Oxfmt; run `pnpm check` before commits.
 - Add brief code comments for tricky or non-obvious logic.
-- Keep files concise; extract helpers instead of “V2” copies. Use existing patterns for CLI options and dependency injection via `createDefaultDeps`.
+- Keep files concise; extract helpers instead of "V2" copies. Use existing patterns for CLI options and dependency injection via `createDefaultDeps`.
 - Aim to keep files under ~700 LOC; guideline only (not a hard guardrail). Split/refactor when it improves clarity or testability.
 - Naming: use **OpenClaw** for product/app/docs headings; use `openclaw` for CLI command, package/binary, paths, and config keys.
 
@@ -75,7 +97,7 @@
 - Run `pnpm test` (or `pnpm test:coverage`) before pushing when you touch logic.
 - Do not set test workers above 16; tried already.
 - Live tests (real keys): `CLAWDBOT_LIVE_TEST=1 pnpm test:live` (OpenClaw-only) or `LIVE=1 pnpm test:live` (includes provider live tests). Docker: `pnpm test:docker:live-models`, `pnpm test:docker:live-gateway`. Onboarding Docker E2E: `pnpm test:docker:onboard`.
-- Full kit + what’s covered: `docs/testing.md`.
+- Full kit + what's covered: `docs/testing.md`.
 - Pure test additions/fixes generally do **not** need a changelog entry unless they alter user-facing behavior or the user asks for one.
 - Mobile: before using a simulator, check for connected real devices (iOS + Android) and prefer them when available.
 
@@ -90,12 +112,12 @@
 - PR review calls: prefer a single `gh pr view --json ...` to batch metadata/comments; run `gh pr diff` only when needed.
 - Before starting a review when a GH Issue/PR is pasted: run `git pull`; if there are local changes or unpushed commits, stop and alert the user before reviewing.
 - Goal: merge PRs. Prefer **rebase** when commits are clean; **squash** when history is messy.
-- PR merge flow: create a temp branch from `main`, merge the PR branch into it (prefer squash unless commit history is important; use rebase/merge when it is). Always try to merge the PR unless it’s truly difficult, then use another approach. If we squash, add the PR author as a co-contributor. Apply fixes, add changelog entry (include PR # + thanks), run full gate before the final commit, commit, merge back to `main`, delete the temp branch, and end on `main`.
+- PR merge flow: create a temp branch from `main`, merge the PR branch into it (prefer squash unless commit history is important; use rebase/merge when it is). Always try to merge the PR unless it's truly difficult, then use another approach. If we squash, add the PR author as a co-contributor. Apply fixes, add changelog entry (include PR # + thanks), run full gate before the final commit, commit, merge back to `main`, delete the temp branch, and end on `main`.
 - If you review a PR and later do work on it, land via merge/squash (no direct-main commits) and always add the PR author as a co-contributor.
 - When working on a PR: add a changelog entry with the PR number and thank the contributor.
 - When working on an issue: reference the issue in the changelog entry.
 - When merging a PR: leave a PR comment that explains exactly what we did and include the SHA hashes.
-- When merging a PR from a new contributor: add their avatar to the README “Thanks to all clawtributors” thumbnail list.
+- When merging a PR from a new contributor: add their avatar to the README "Thanks to all clawtributors" thumbnail list.
 - After merging a PR: run `bun scripts/update-clawtributors.ts` if the contributor is missing, then commit the regenerated README.
 
 ## Shorthand Commands
@@ -129,15 +151,15 @@
 - Never update the Carbon dependency.
 - Any dependency with `pnpm.patchedDependencies` must use an exact version (no `^`/`~`).
 - Patching dependencies (pnpm patches, overrides, or vendored changes) requires explicit approval; do not do this by default.
-- CLI progress: use `src/cli/progress.ts` (`osc-progress` + `@clack/prompts` spinner); don’t hand-roll spinners/bars.
+- CLI progress: use `src/cli/progress.ts` (`osc-progress` + `@clack/prompts` spinner); don't hand-roll spinners/bars.
 - Status output: keep tables + ANSI-safe wrapping (`src/terminal/table.ts`); `status --all` = read-only/pasteable, `status --deep` = probes.
 - Gateway currently runs only as the menubar app; there is no separate LaunchAgent/helper label installed. Restart via the OpenClaw Mac app or `scripts/restart-mac.sh`; to verify/kill use `launchctl print gui/$UID | grep openclaw` rather than assuming a fixed label. **When debugging on macOS, start/stop the gateway via the app, not ad-hoc tmux sessions; kill any temporary tunnels before handoff.**
 - macOS logs: use `./scripts/clawlog.sh` to query unified logs for the OpenClaw subsystem; it supports follow/tail/category filters and expects passwordless sudo for `/usr/bin/log`.
 - If shared guardrails are available locally, review them; otherwise follow this repo's guidance.
-- SwiftUI state management (iOS/macOS): prefer the `Observation` framework (`@Observable`, `@Bindable`) over `ObservableObject`/`@StateObject`; don’t introduce new `ObservableObject` unless required for compatibility, and migrate existing usages when touching related code.
+- SwiftUI state management (iOS/macOS): prefer the `Observation` framework (`@Observable`, `@Bindable`) over `ObservableObject`/`@StateObject`; don't introduce new `ObservableObject` unless required for compatibility, and migrate existing usages when touching related code.
 - Connection providers: when adding a new connection, update every UI surface and docs (macOS app, web UI, mobile if applicable, onboarding/overview docs) and add matching status + configuration forms so provider lists and settings stay in sync.
 - Version locations: `package.json` (CLI), `apps/android/app/build.gradle.kts` (versionName/versionCode), `apps/ios/Sources/Info.plist` + `apps/ios/Tests/Info.plist` (CFBundleShortVersionString/CFBundleVersion), `apps/macos/Sources/OpenClaw/Resources/Info.plist` (CFBundleShortVersionString/CFBundleVersion), `docs/install/updating.md` (pinned npm version), `docs/platforms/mac/release.md` (APP_VERSION/APP_BUILD examples), Peekaboo Xcode projects/Info.plists (MARKETING_VERSION/CURRENT_PROJECT_VERSION).
-- **Restart apps:** “restart iOS/Android apps” means rebuild (recompile/install) and relaunch, not just kill/launch.
+- **Restart apps:** "restart iOS/Android apps" means rebuild (recompile/install) and relaunch, not just kill/launch.
 - **Device checks:** before testing, verify connected real devices (iOS/Android) before reaching for simulators/emulators.
 - iOS Team ID lookup: `security find-identity -p codesigning -v` → use Apple Development (…) TEAMID. Fallback: `defaults read com.apple.dt.Xcode IDEProvisioningTeamIdentifiers`.
 - A2UI bundle hash: `src/canvas-host/a2ui/.bundle.hash` is auto-generated; ignore unexpected changes, and only regenerate via `pnpm canvas:a2ui:bundle` (or `scripts/bundle-a2ui.sh`) when needed. Commit the hash as a separate commit.
@@ -154,19 +176,19 @@
   - If commit/push already requested, auto-stage and include formatting-only follow-ups in the same commit (or a tiny follow-up commit if needed), no extra confirmation.
   - Only ask when changes are semantic (logic/data/behavior).
 - Lobster seam: use the shared CLI palette in `src/terminal/palette.ts` (no hardcoded colors); apply palette to onboarding/config prompts and other TTY UI output as needed.
-- **Multi-agent safety:** focus reports on your edits; avoid guard-rail disclaimers unless truly blocked; when multiple agents touch the same file, continue if safe; end with a brief “other files present” note only if relevant.
+- **Multi-agent safety:** focus reports on your edits; avoid guard-rail disclaimers unless truly blocked; when multiple agents touch the same file, continue if safe; end with a brief "other files present" note only if relevant.
 - Bug investigations: read source code of relevant npm dependencies and all related local code before concluding; aim for high-confidence root cause.
 - Code style: add brief comments for tricky logic; keep files under ~500 LOC when feasible (split/refactor as needed).
 - Tool schema guardrails (google-antigravity): avoid `Type.Union` in tool input schemas; no `anyOf`/`oneOf`/`allOf`. Use `stringEnum`/`optionalStringEnum` (Type.Unsafe enum) for string lists, and `Type.Optional(...)` instead of `... | null`. Keep top-level tool schema as `type: "object"` with `properties`.
 - Tool schema guardrails: avoid raw `format` property names in tool schemas; some validators treat `format` as a reserved keyword and reject the schema.
-- When asked to open a “session” file, open the Pi session logs under `~/.openclaw/agents/<agentId>/sessions/*.jsonl` (use the `agent=<id>` value in the Runtime line of the system prompt; newest unless a specific ID is given), not the default `sessions.json`. If logs are needed from another machine, SSH via Tailscale and read the same path there.
+- When asked to open a "session" file, open the Pi session logs under `~/.openclaw/agents/<agentId>/sessions/*.jsonl` (use the `agent=<id>` value in the Runtime line of the system prompt; newest unless a specific ID is given), not the default `sessions.json`. If logs are needed from another machine, SSH via Tailscale and read the same path there.
 - Do not rebuild the macOS app over SSH; rebuilds must be run directly on the Mac.
 - Never send streaming/partial replies to external messaging surfaces (WhatsApp, Telegram); only final replies should be delivered there. Streaming/tool events may still go to internal UIs/control channel.
 - Voice wake forwarding tips:
-  - Command template should stay `openclaw-mac agent --message "${text}" --thinking low`; `VoiceWakeForwarder` already shell-escapes `${text}`. Don’t add extra quotes.
-  - launchd PATH is minimal; ensure the app’s launch agent PATH includes standard system paths plus your pnpm bin (typically `$HOME/Library/pnpm`) so `pnpm`/`openclaw` binaries resolve when invoked via `openclaw-mac`.
-- For manual `openclaw message send` messages that include `!`, use the heredoc pattern noted below to avoid the Bash tool’s escaping.
-- Release guardrails: do not change version numbers without operator’s explicit consent; always ask permission before running any npm publish/release step.
+  - Command template should stay `openclaw-mac agent --message "${text}" --thinking low`; `VoiceWakeForwarder` already shell-escapes `${text}`. Don't add extra quotes.
+  - launchd PATH is minimal; ensure the app's launch agent PATH includes standard system paths plus your pnpm bin (typically `$HOME/Library/pnpm`) so `pnpm`/`openclaw` binaries resolve when invoked via `openclaw-mac`.
+- For manual `openclaw message send` messages that include `!`, use the heredoc pattern noted below to avoid the Bash tool's escaping.
+- Release guardrails: do not change version numbers without operator's explicit consent; always ask permission before running any npm publish/release step.
 
 ## NPM + 1Password (publish/verify)
 
